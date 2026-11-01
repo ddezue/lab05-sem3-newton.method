@@ -83,7 +83,7 @@ namespace NewtonMethod
       MinimumSize = new Size(950, 620);
       StartPosition = FormStartPosition.CenterScreen;
       Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
-      BackColor = Color.FromArgb(245, 245, 245); // Мягкий серый фон
+      BackColor = Color.FromArgb(245, 245, 245);
 
       // MENU
       _menuStrip = new MenuStrip();
@@ -116,8 +116,8 @@ namespace NewtonMethod
         RowCount = 2,
         Margin = new Padding(0)
       };
-      // Увеличили высоту верхнего блока до 290, чтобы точно ничего не обрезалось
-      leftContainer.RowStyles.Add(new RowStyle(SizeType.Absolute, 290));
+      // Высота блока параметров 260px - ровно столько нужно, чтобы ничего не обрезалось
+      leftContainer.RowStyles.Add(new RowStyle(SizeType.Absolute, 260));
       leftContainer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
       // --- ГРУППА: ПАРАМЕТРЫ ---
@@ -134,13 +134,14 @@ namespace NewtonMethod
       {
         Dock = DockStyle.Fill,
         ColumnCount = 2,
-        RowCount = 5 // Ровно 5 строк, без пустых
+        RowCount = 6
       };
       paramsLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 65));
       paramsLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-      // Фиксируем высоту всех 5 строк
-      for (int i = 0; i < 5; i++) paramsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+      // 5 строк параметров по 38 пикселей, 6-я забирает остаток
+      for (int i = 0; i < 5; i++) paramsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+      paramsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
       // a
       paramsLayout.Controls.Add(MakeLabel("a ="), 0, 0);
@@ -178,7 +179,7 @@ namespace NewtonMethod
         ForeColor = Color.White,
         BackColor = Color.FromArgb(0, 120, 215),
         Cursor = Cursors.Help,
-        Margin = new Padding(4, 6, 0, 6) // Центрируем по вертикали
+        Margin = new Padding(4, 6, 0, 6)
       };
       formulaPanel.Controls.Add(_helpIcon, 1, 0);
       paramsLayout.Controls.Add(formulaPanel, 1, 3);
@@ -191,11 +192,11 @@ namespace NewtonMethod
         Dock = DockStyle.Fill,
         FlowDirection = FlowDirection.LeftToRight,
         WrapContents = false,
-        Margin = new Padding(0)
+        Padding = new Padding(0, 6, 0, 0) // Выравниваем по центру строки
       };
 
-      _radioMin = new RadioButton { Text = "Глоб. минимум", Checked = true, AutoSize = true, Margin = new Padding(0, 10, 15, 0) };
-      _radioMax = new RadioButton { Text = "Глоб. максимум", AutoSize = true, Margin = new Padding(0, 10, 0, 0) };
+      _radioMin = new RadioButton { Text = "Глоб. минимум", Checked = true, AutoSize = true, Margin = new Padding(0, 0, 15, 0) };
+      _radioMax = new RadioButton { Text = "Глоб. максимум", AutoSize = true, Margin = new Padding(0) };
 
       modePanel.Controls.Add(_radioMin);
       modePanel.Controls.Add(_radioMax);
@@ -323,7 +324,8 @@ namespace NewtonMethod
 
     private TextBox MakeTextBox()
     {
-      return new TextBox { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 10F), Margin = new Padding(0, 8, 0, 8) };
+      // Уменьшили вертикальные отступы, чтобы точно влезало в 38px
+      return new TextBox { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 10F), Margin = new Padding(0, 4, 0, 4) };
     }
 
     // ============================================================
@@ -392,7 +394,6 @@ namespace NewtonMethod
       _labelFunctionName.Text = _solverResult.Mode == OptimizationMode.Minimum ? "f(x_min)" : "f(x_max)";
 
       _valueRoot.Text = FormatByPrecision(_solverResult.Point, _precision);
-      // ИСПРАВЛЕНИЕ: Убираем лишние нули, используя ту же функцию форматирования
       _valueFunction.Text = FormatByPrecision(_solverResult.Value, _precision);
       _valuePrecision.Text = _precision.ToString("G", CultureInfo.InvariantCulture);
 
@@ -500,22 +501,18 @@ namespace NewtonMethod
       _formsPlot.Plot.Title($"f(x) = {_textBoxFormula.Text}   ({modeStr})");
       _formsPlot.Plot.Axes.SetLimitsX(xMin, xMax);
 
-      // ИСПРАВЛЕНИЕ МАСШТАБА Y: теперь центрируем график на найденном экстремуме
       double zoomFactor = _yZoomTrackBar.Value / 100.0;
 
       if (_solverResult != null && _solverResult.Success && Math.Abs(_solverResult.Value) < 1e5)
       {
         double center = _solverResult.Value;
-        // Рассчитываем базовый диапазон вокруг центра (например, берем ±50% от значения или ±5)
         double halfRange = Math.Max(Math.Abs(center) * 0.5, 5.0);
 
-        // Применяем зум
         halfRange /= zoomFactor;
         _formsPlot.Plot.Axes.SetLimitsY(center - halfRange, center + halfRange);
       }
       else
       {
-        // Если экстремум не найден (ошибка/ожидание), используем процентили
         var validYs = ys.Where(y => !double.IsNaN(y)).ToArray();
         if (validYs.Length > 0)
         {
