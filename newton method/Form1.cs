@@ -31,12 +31,20 @@ namespace NewtonMethod
     private Label _valueFunction;
     private Label _labelPrecisionName;
     private Label _valuePrecision;
+    private Label _labelStepName;
+    private Label _valueStep;
 
     private TableLayoutPanel _resultTable;
     private GroupBox _groupParams;
     private GroupBox _groupResult;
 
     private MenuStrip _menuStrip;
+
+    // Кнопки шагов
+    private Button _btnPrevStep;
+    private Button _btnNextStep;
+    private Button _btnFinalStep;
+
     private Label _helpIcon;
     private ToolTip _formulaToolTip;
 
@@ -48,6 +56,8 @@ namespace NewtonMethod
 
     private FunctionParser _parser;
     private NewtonResult _solverResult;
+
+    private int _currentStepIndex = 0;
 
     public Form1()
     {
@@ -85,7 +95,7 @@ namespace NewtonMethod
       Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
       BackColor = Color.FromArgb(245, 245, 245);
 
-      // MENU
+      // МЕНЮ
       _menuStrip = new MenuStrip();
       var calculateItem = new ToolStripMenuItem("Рассчитать");
       var clearItem = new ToolStripMenuItem("Очистить");
@@ -116,7 +126,6 @@ namespace NewtonMethod
         RowCount = 2,
         Margin = new Padding(0)
       };
-      // Высота блока параметров 260px - ровно столько нужно, чтобы ничего не обрезалось
       leftContainer.RowStyles.Add(new RowStyle(SizeType.Absolute, 260));
       leftContainer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
@@ -139,33 +148,26 @@ namespace NewtonMethod
       paramsLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 65));
       paramsLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-      // 5 строк параметров по 38 пикселей, 6-я забирает остаток
       for (int i = 0; i < 5; i++) paramsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
       paramsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-      // a
       paramsLayout.Controls.Add(MakeLabel("a ="), 0, 0);
       _textBoxA = MakeTextBox();
       paramsLayout.Controls.Add(_textBoxA, 1, 0);
 
-      // b
       paramsLayout.Controls.Add(MakeLabel("b ="), 0, 1);
       _textBoxB = MakeTextBox();
       paramsLayout.Controls.Add(_textBoxB, 1, 1);
 
-      // e
       paramsLayout.Controls.Add(MakeLabel("e ="), 0, 2);
       _textBoxE = MakeTextBox();
       _textBoxE.Text = "0,0001";
       paramsLayout.Controls.Add(_textBoxE, 1, 2);
 
-      // f(x)
       paramsLayout.Controls.Add(MakeLabel("f(x) ="), 0, 3);
-
       var formulaPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
       formulaPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
       formulaPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 35));
-
       _textBoxFormula = MakeTextBox();
       _textBoxFormula.Text = "x^2 + 2*x - 6";
       formulaPanel.Controls.Add(_textBoxFormula, 0, 0);
@@ -184,23 +186,12 @@ namespace NewtonMethod
       formulaPanel.Controls.Add(_helpIcon, 1, 0);
       paramsLayout.Controls.Add(formulaPanel, 1, 3);
 
-      // Режим
       paramsLayout.Controls.Add(MakeLabel("Режим:"), 0, 4);
-
-      var modePanel = new FlowLayoutPanel
-      {
-        Dock = DockStyle.Fill,
-        FlowDirection = FlowDirection.LeftToRight,
-        WrapContents = false,
-        Padding = new Padding(0, 6, 0, 0) // Выравниваем по центру строки
-      };
-
+      var modePanel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 6, 0, 0) };
       _radioMin = new RadioButton { Text = "Глоб. минимум", Checked = true, AutoSize = true, Margin = new Padding(0, 0, 15, 0) };
       _radioMax = new RadioButton { Text = "Глоб. максимум", AutoSize = true, Margin = new Padding(0) };
-
       modePanel.Controls.Add(_radioMin);
       modePanel.Controls.Add(_radioMax);
-
       paramsLayout.Controls.Add(modePanel, 1, 4);
 
       _groupParams.Controls.Add(paramsLayout);
@@ -243,7 +234,7 @@ namespace NewtonMethod
 
       var resLayout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
       resLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
-      resLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
+      resLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 140));
       resLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
       resLayout.Controls.Add(_labelResult, 0, 0);
@@ -255,43 +246,64 @@ namespace NewtonMethod
 
       rootLayout.Controls.Add(leftContainer, 0, 0);
 
-      // --- ПРАВАЯ ПАНЕЛЬ (ГРАФИК) ---
+      // --- ПРАВАЯ ПАНЕЛЬ (ГРАФИК + КНОПКИ СНИЗУ) ---
       var plotContainer = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1, Margin = new Padding(15, 0, 0, 0) };
       plotContainer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-      plotContainer.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+      plotContainer.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
 
       _formsPlot = new FormsPlot { Dock = DockStyle.Fill };
       plotContainer.Controls.Add(_formsPlot, 0, 0);
 
-      // Ползунок масштаба Y
-      var zoomPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(0, 5, 0, 0) };
-      zoomPanel.Controls.Add(new Label { Text = "Масштаб Y:", AutoSize = true, Margin = new Padding(0, 5, 10, 0), ForeColor = Color.DimGray });
+      var bottomPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+      bottomPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+      bottomPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 350));
 
-      _yZoomTrackBar = new TrackBar { Minimum = 10, Maximum = 300, Value = 100, TickFrequency = 20, Width = 200, AutoSize = false, Height = 30 };
+      // Кнопки шагов (слева внизу)
+      var stepPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(0, 8, 0, 0) };
+
+      _btnPrevStep = new Button { Text = "← Пред.", Width = 80, Height = 28, Enabled = false, Font = new Font("Segoe UI", 9F) };
+      _btnPrevStep.Click += (s, e) => ChangeStep(-1);
+
+      _btnNextStep = new Button { Text = "След. →", Width = 80, Height = 28, Enabled = false, Font = new Font("Segoe UI", 9F) };
+      _btnNextStep.Click += (s, e) => ChangeStep(1);
+
+      _btnFinalStep = new Button { Text = "В конец", Width = 80, Height = 28, Enabled = false, Font = new Font("Segoe UI", 9F) };
+      _btnFinalStep.Click += (s, e) => GoToFinalStep();
+
+      stepPanel.Controls.Add(_btnPrevStep);
+      stepPanel.Controls.Add(_btnNextStep);
+      stepPanel.Controls.Add(_btnFinalStep);
+
+      bottomPanel.Controls.Add(stepPanel, 0, 0);
+
+      // Ползунок Y (справа внизу)
+      var zoomPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(0, 5, 0, 0) };
+      zoomPanel.Controls.Add(new Label { Text = "Масштаб Y:", AutoSize = true, Margin = new Padding(0, 8, 10, 0), ForeColor = Color.DimGray });
+
+      _yZoomTrackBar = new TrackBar { Minimum = 10, Maximum = 300, Value = 100, TickFrequency = 20, Width = 180, AutoSize = false, Height = 30 };
       _yZoomTrackBar.Scroll += (s, e) => UpdatePlot(false);
       zoomPanel.Controls.Add(_yZoomTrackBar);
 
-      var lblZoom = new Label { Text = "1.0x", AutoSize = true, Margin = new Padding(10, 5, 0, 0), ForeColor = Color.DimGray };
-      _yZoomTrackBar.ValueChanged += (s, e) => {
-        lblZoom.Text = (_yZoomTrackBar.Value / 100.0).ToString("0.0") + "x";
-      };
+      var lblZoom = new Label { Text = "1.0x", AutoSize = true, Margin = new Padding(10, 8, 0, 0), ForeColor = Color.DimGray };
+      _yZoomTrackBar.ValueChanged += (s, e) => { lblZoom.Text = (_yZoomTrackBar.Value / 100.0).ToString("0.0") + "x"; };
       zoomPanel.Controls.Add(lblZoom);
 
-      plotContainer.Controls.Add(zoomPanel, 0, 1);
+      bottomPanel.Controls.Add(zoomPanel, 1, 0);
+      plotContainer.Controls.Add(bottomPanel, 0, 1);
+
       rootLayout.Controls.Add(plotContainer, 1, 0);
 
-      // TOOLTIP
       _formulaToolTip = new ToolTip { AutoPopDelay = 60000, InitialDelay = 150, ToolTipTitle = "Справка" };
       _formulaToolTip.SetToolTip(_helpIcon, "Поддерживается: + - * / ^ ( )\nsin, cos, tan, exp, ln, log, sqrt, abs\npi, e\n\nДесятичный разделитель - точка или запятая.");
     }
 
     private TableLayoutPanel CreateResultTable()
     {
-      var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3 };
+      var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4 };
       table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
       table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-      for (int i = 0; i < 3; i++) table.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+      for (int i = 0; i < 4; i++) table.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
 
       _labelRootName = CreateResultNameLabel("Точка экстремума");
       _valueRoot = CreateResultValueLabel();
@@ -300,33 +312,21 @@ namespace NewtonMethod
       _labelPrecisionName = CreateResultNameLabel("Точность");
       _valuePrecision = CreateResultValueLabel();
 
+      _labelStepName = CreateResultNameLabel("Шаг:");
+      _valueStep = CreateResultValueLabel();
+
       table.Controls.Add(_labelRootName, 0, 0); table.Controls.Add(_valueRoot, 1, 0);
       table.Controls.Add(_labelFunctionName, 0, 1); table.Controls.Add(_valueFunction, 1, 1);
       table.Controls.Add(_labelPrecisionName, 0, 2); table.Controls.Add(_valuePrecision, 1, 2);
+      table.Controls.Add(_labelStepName, 0, 3); table.Controls.Add(_valueStep, 1, 3);
 
       return table;
     }
 
-    private Label CreateResultNameLabel(string text)
-    {
-      return new Label { Text = text, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9.5F), TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(80, 80, 80) };
-    }
-
-    private Label CreateResultValueLabel()
-    {
-      return new Label { Text = "-", Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
-    }
-
-    private Label MakeLabel(string caption)
-    {
-      return new Label { Text = caption, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleRight, Font = new Font("Segoe UI", 9.5F), Padding = new Padding(0, 0, 8, 0) };
-    }
-
-    private TextBox MakeTextBox()
-    {
-      // Уменьшили вертикальные отступы, чтобы точно влезало в 38px
-      return new TextBox { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 10F), Margin = new Padding(0, 4, 0, 4) };
-    }
+    private Label CreateResultNameLabel(string text) => new Label { Text = text, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9.5F), TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(80, 80, 80) };
+    private Label CreateResultValueLabel() => new Label { Text = "-", Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
+    private Label MakeLabel(string caption) => new Label { Text = caption, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleRight, Font = new Font("Segoe UI", 9.5F), Padding = new Padding(0, 0, 8, 0) };
+    private TextBox MakeTextBox() => new TextBox { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 10F), Margin = new Padding(0, 4, 0, 4) };
 
     // ============================================================
     // ЛОГИКА
@@ -363,39 +363,78 @@ namespace NewtonMethod
       if (_leftBound >= _rightBound) { ShowError("должно выполняться a < b"); return; }
       if (_precision <= 0) { _textBoxE.BackColor = Color.MistyRose; ShowError("e должно быть > 0"); return; }
 
-      try
-      {
-        _parser = new FunctionParser(_textBoxFormula.Text);
-      }
-      catch (Exception ex)
-      {
-        _textBoxFormula.BackColor = Color.MistyRose;
-        ShowError("ошибка в формуле: " + ex.Message);
-        return;
-      }
+      try { _parser = new FunctionParser(_textBoxFormula.Text); }
+      catch (Exception ex) { _textBoxFormula.BackColor = Color.MistyRose; ShowError("ошибка в формуле: " + ex.Message); return; }
 
       _solverResult = NewtonSolver.Solve(_parser.Evaluate, _leftBound, _rightBound, _precision, CurrentMode);
+
+      _currentStepIndex = 0;
+      UpdateNavigationButtons();
       ShowResult();
       UpdatePlot(true);
     }
 
-    private void ShowResult()
+    private void ChangeStep(int delta)
     {
-      if (!_solverResult.Success)
+      if (_solverResult == null || _solverResult.Steps.Count == 0) return;
+
+      _currentStepIndex = Math.Max(0, Math.Min(_solverResult.Steps.Count - 1, _currentStepIndex + delta));
+
+      UpdateNavigationButtons();
+      ShowResult();
+      UpdatePlot(false);
+    }
+
+    private void GoToFinalStep()
+    {
+      if (_solverResult == null || _solverResult.Steps.Count == 0) return;
+
+      _currentStepIndex = _solverResult.Steps.Count - 1;
+
+      UpdateNavigationButtons();
+      ShowResult();
+      UpdatePlot(false);
+    }
+
+    private void UpdateNavigationButtons()
+    {
+      if (_solverResult == null || _solverResult.Steps.Count == 0)
       {
-        ShowError(_solverResult.Error);
+        _btnPrevStep.Enabled = false;
+        _btnNextStep.Enabled = false;
+        _btnFinalStep.Enabled = false;
         return;
       }
+
+      _btnPrevStep.Enabled = _currentStepIndex > 0;
+      _btnNextStep.Enabled = _currentStepIndex < _solverResult.Steps.Count - 1;
+      _btnFinalStep.Enabled = _currentStepIndex < _solverResult.Steps.Count - 1;
+    }
+
+    private void ShowResult()
+    {
+      if (!_solverResult.Success) { ShowError(_solverResult.Error); return; }
 
       _labelResult.Text = "Успешно найдено";
       _labelResult.ForeColor = Color.FromArgb(0, 120, 215);
 
-      _labelRootName.Text = _solverResult.Mode == OptimizationMode.Minimum ? "Глоб. минимум (x)" : "Глоб. максимум (x)";
-      _labelFunctionName.Text = _solverResult.Mode == OptimizationMode.Minimum ? "f(x_min)" : "f(x_max)";
-
-      _valueRoot.Text = FormatByPrecision(_solverResult.Point, _precision);
-      _valueFunction.Text = FormatByPrecision(_solverResult.Value, _precision);
+      _labelRootName.Text = "Точка (x)";
+      _labelFunctionName.Text = "f(x)";
       _valuePrecision.Text = _precision.ToString("G", CultureInfo.InvariantCulture);
+
+      if (_solverResult.Steps.Count > 0)
+      {
+        var step = _solverResult.Steps[_currentStepIndex];
+        _valueRoot.Text = FormatByPrecision(step.X, _precision);
+        _valueFunction.Text = FormatByPrecision(step.Y, _precision);
+        _valueStep.Text = $"{_currentStepIndex + 1} из {_solverResult.Steps.Count}";
+      }
+      else
+      {
+        _valueRoot.Text = FormatByPrecision(_solverResult.Point, _precision);
+        _valueFunction.Text = FormatByPrecision(_solverResult.Value, _precision);
+        _valueStep.Text = "0 из 0";
+      }
 
       _labelWarning.Text = string.IsNullOrEmpty(_solverResult.Warning) ? "" : "⚠ " + _solverResult.Warning;
       _resultTable.Visible = true;
@@ -408,6 +447,7 @@ namespace NewtonMethod
       _resultTable.Visible = false;
       _labelWarning.Text = "";
       _solverResult = null;
+      UpdateNavigationButtons();
       UpdatePlot(false);
     }
 
@@ -418,6 +458,8 @@ namespace NewtonMethod
       _resultTable.Visible = false;
       _labelWarning.Text = "";
       _solverResult = null;
+      _currentStepIndex = 0;
+      UpdateNavigationButtons();
       UpdatePlot(false);
     }
 
@@ -433,8 +475,6 @@ namespace NewtonMethod
       double tmp = Math.Abs(eps);
       while (tmp < 1.0 && dec < 15) { tmp *= 10.0; dec++; }
       if (dec < 1) dec = 1;
-
-      // Округляем и убираем незначащие нули в конце
       string s = val.ToString("F" + dec, CultureInfo.InvariantCulture);
       if (s.Contains(".")) s = s.TrimEnd('0').TrimEnd('.');
       if (s == "-0") s = "0";
@@ -490,11 +530,23 @@ namespace NewtonMethod
       var l1 = _formsPlot.Plot.Add.VerticalLine(_leftBound); l1.Color = ScottPlot.Color.FromSDColor(Color.Orange).WithAlpha(0.5); l1.LinePattern = ScottPlot.LinePattern.Dashed;
       var l2 = _formsPlot.Plot.Add.VerticalLine(_rightBound); l2.Color = ScottPlot.Color.FromSDColor(Color.Orange).WithAlpha(0.5); l2.LinePattern = ScottPlot.LinePattern.Dashed;
 
-      if (_solverResult != null && _solverResult.Success)
+      // ОТРИСОВКА ПОШАГОВОГО МАРШРУТА
+      if (_solverResult != null && _solverResult.Success && _solverResult.Steps.Count > 0)
       {
-        var marker = _formsPlot.Plot.Add.Marker(_solverResult.Point, _solverResult.Value);
-        marker.Color = ScottPlot.Color.FromSDColor(Color.Red);
-        marker.Size = 10;
+        for (int i = 0; i <= _currentStepIndex; i++)
+        {
+          var step = _solverResult.Steps[i];
+
+          var marker = _formsPlot.Plot.Add.Marker(step.X, step.Y);
+          marker.Color = (i == _currentStepIndex) ? ScottPlot.Color.FromSDColor(Color.Red) : ScottPlot.Color.FromSDColor(Color.Gray);
+          marker.Size = (i == _currentStepIndex) ? 12 : 7;
+
+          if (i > 0)
+          {
+            var prev = _solverResult.Steps[i - 1];
+            _formsPlot.Plot.Add.Line(prev.X, prev.Y, step.X, step.Y).Color = ScottPlot.Color.FromSDColor(Color.DarkOrange);
+          }
+        }
       }
 
       string modeStr = CurrentMode == OptimizationMode.Minimum ? "поиск min" : "поиск max";
@@ -507,7 +559,6 @@ namespace NewtonMethod
       {
         double center = _solverResult.Value;
         double halfRange = Math.Max(Math.Abs(center) * 0.5, 5.0);
-
         halfRange /= zoomFactor;
         _formsPlot.Plot.Axes.SetLimitsY(center - halfRange, center + halfRange);
       }
@@ -520,7 +571,6 @@ namespace NewtonMethod
           double low = validYs[(int)(validYs.Length * 0.02)];
           double high = validYs[(int)(validYs.Length * 0.98)];
           if (Math.Abs(high - low) < 1e-9) { low -= 1; high += 1; }
-
           double center = (low + high) / 2;
           double halfRange = (high - low) * 0.6 / zoomFactor;
           _formsPlot.Plot.Axes.SetLimitsY(center - halfRange, center + halfRange);

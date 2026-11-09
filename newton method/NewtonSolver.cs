@@ -1,16 +1,19 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace NewtonMethod
 {
-  public enum OptimizationMode
+  public enum OptimizationMode { Minimum, Maximum, Root }
+
+  public class NewtonStep
   {
-    Minimum,
-    Maximum,
-    Root
+    public double X;
+    public double Y;
   }
 
   public class NewtonResult
   {
+    public List<NewtonStep> Steps = new List<NewtonStep>();
     public double Point;
     public double Value;
     public bool Success;
@@ -22,7 +25,7 @@ namespace NewtonMethod
   public static class NewtonSolver
   {
     private const int MaxIterations = 100;
-    private const int ScanSteps = 50; // Количество стартовых точек для поиска глобального экстремума
+    private const int ScanSteps = 50; // Количество стартовых точек по всему отрезку
 
     public static NewtonResult Solve(
         Func<double, double> function,
@@ -31,78 +34,49 @@ namespace NewtonMethod
     {
       var result = new NewtonResult { Mode = mode };
 
-      // Проверка входных данных
-      if (function == null)
-      {
-        result.Error = "Функция не задана";
-        return result;
-      }
+      if (function == null) { result.Error = "Функция не задана"; return result; }
+      if (a >= b) { result.Error = "Требуется a < b"; return result; }
+      if (eps <= 0) { result.Error = "Точность e должна быть > 0"; return result; }
 
-      if (!IsFinite(a) || !IsFinite(b) || !IsFinite(eps))
-      {
-        result.Error = "Входные значения должны быть конечными числами";
-        return result;
-      }
-
-      if (a >= b)
-      {
-        result.Error = "Требуется a < b";
-        return result;
-      }
-
-      if (eps <= 0)
-      {
-        result.Error = "Точность e должна быть > 0";
-        return result;
-      }
-
-      if (eps >= (b - a))
-      {
-        result.Error = "Точность e больше длины интервала";
-        return result;
-      }
-
-      if (mode == OptimizationMode.Root)
-      {
-        result.Error = "В этой программе предусмотрен поиск глобального минимума или максимума";
-        return result;
-      }
-
-      // 1. Проверка вычислимости функции на границах интервала
-      if (!TryEvaluate(function, a, out _) || !TryEvaluate(function, b, out _))
-      {
-        result.Error = "Функция не вычислима на границах интервала";
-        return result;
-      }
-
-      // 2. Поиск экстремумов (корней производной) мультистартом
       double globalBestX = double.NaN;
       double globalBestY = mode == OptimizationMode.Minimum ? double.MaxValue : double.MinValue;
+      List<NewtonStep> bestSteps = null;
 
-      // Проверяем границы: глобальный экстремум может находиться на краю отрезка
-      CheckPoint(function, a, mode, eps, ref globalBestX, ref globalBestY);
-      CheckPoint(function, b, mode, eps, ref globalBestX, ref globalBestY);
+      // 1. Проверяем САМИ ГРАНИЦЫ (глобальный экстремум может быть на краю)
+      CheckBound(function, a, mode, ref globalBestX, ref globalBestY, ref bestSteps);
+      CheckBound(function, b, mode, ref globalBestX, ref globalBestY, ref bestSteps);
 
-      // Запускаем метод Ньютона из нескольких начальных точек внутри отрезка
+      // 2. Запускаем метод Ньютона из 50 точек по всему отрезку
       for (int i = 1; i < ScanSteps; i++)
       {
         double startX = a + (b - a) * i / ScanSteps;
-        double rootX = FindExtremumByNewton(function, startX, eps);
+        var steps = FindLocalExtremum(function, startX, eps);
 
-        // Учитываем только стационарные точки внутри заданного отрезка
-        if (IsFinite(rootX) && rootX > a && rootX < b)
+        if (steps != null && steps.Count > 0)
         {
-          CheckPoint(function, rootX, mode, eps, ref globalBestX, ref globalBestY);
+          double localX = steps[steps.Count - 1].X;
+          double localY = steps[steps.Count - 1].Y;
+
+          // Если этот локальный экстремум оказался лучше глобального - запоминаем его
+          bool isBetter = (mode == OptimizationMode.Minimum && localY < globalBestY) ||
+                          (mode == OptimizationMode.Maximum && localY > globalBestY);
+
+          if (isBetter)
+          {
+            globalBestX = localX;
+            globalBestY = localY;
+            bestSteps = steps; // Запоминаем маршрут именно этого "победителя"
+          }
         }
       }
 
-      if (!IsFinite(globalBestX))
+      if (double.IsNaN(globalBestX))
       {
         result.Error = "Не удалось найти экстремум. Возможно, производная нигде не равна нулю.";
         return result;
       }
 
-      // Проверяем, совпадает ли найденная точка с границей
+      // Если лучший результат оказался на границе, выводим предупреждение
       if (Math.Abs(globalBestX - a) < eps || Math.Abs(globalBestX - b) < eps)
       {
         string kind = mode == OptimizationMode.Minimum ? "минимум" : "максимум";
@@ -111,110 +85,110 @@ namespace NewtonMethod
 
       result.Point = globalBestX;
       result.Value = globalBestY;
+      result.Steps = bestSteps; // Отдаем историю шагов в интерфейс
       result.Success = true;
       return result;
     }
 
-    // Локальный метод Ньютона для поиска корня f'(x) = 0
-    private static double FindExtremumByNewton(Func<double, double> f, double startX, double eps)
+    // Выполняет сам метод Ньютона из конкретной точки
+    private static List<NewtonStep> FindLocalExtremum(Func<double, double> f, double startX, double eps)
     {
+      var steps = new List<NewtonStep>();
       double x = startX;
+
+      double startY;
+      if (!TryEvaluate(f, x, out startY)) return null;
+
+      steps.Add(new NewtonStep { X = x, Y = startY });
 
       for (int i = 0; i < MaxIterations; i++)
       {
         double dfx = Derivative(f, x);
         double ddfx = SecondDerivative(f, x);
 
-        if (!IsFinite(dfx) || !IsFinite(ddfx))
-          return double.NaN;
+        // Проверки на разрывы и деление на ноль
+        if (double.IsNaN(dfx) || double.IsInfinity(dfx) ||
+            double.IsNaN(ddfx) || double.IsInfinity(ddfx) ||
+            Math.Abs(ddfx) < 1e-10)
+        {
+          return null;
+        }
 
-        // Если вторая производная около нуля, метод Ньютона не работает
-        if (Math.Abs(ddfx) < 1e-10)
-          return double.NaN;
-
+        // Шаг Ньютона
         double nextX = x - dfx / ddfx;
 
-        // Защита от переполнения и ухода в бесконечность
-        if (!IsFinite(nextX) || Math.Abs(nextX) > 1e7)
-          return double.NaN;
+        if (double.IsNaN(nextX) || double.IsInfinity(nextX)) return null;
 
+        // Записываем шаг, если точка реально сдвинулась
+        if (Math.Abs(nextX - x) > 1e-12)
+        {
+          double nextY;
+          if (TryEvaluate(f, nextX, out nextY))
+          {
+            steps.Add(new NewtonStep { X = nextX, Y = nextY });
+          }
+          else return null;
+        }
+
+        // Проверка точности (сошлись или нет)
         if (Math.Abs(nextX - x) < eps)
-          return nextX;
+        {
+          return steps;
+        }
 
         x = nextX;
       }
-
-      return double.NaN; // Метод не сошёлся за MaxIterations итераций
+      return null; // Не сошлось за 100 итераций
     }
 
-    private static void CheckPoint(
-        Func<double, double> f,
-        double x,
-        OptimizationMode mode,
-        double eps,
-        ref double bestX,
-        ref double bestY)
+    // Проверка границ интервала
+    private static void CheckBound(Func<double, double> f, double x, OptimizationMode mode, ref double bestX, ref double bestY, ref List<NewtonStep> bestSteps)
     {
-      if (!TryEvaluate(f, x, out double y))
-        return;
+      double y;
+      if (!TryEvaluate(f, x, out y)) return;
+      if (Math.Abs(y) > 1e5) return; // Отсеиваем полюса
 
-      // Отсеиваем слишком большие значения, которые могут соответствовать полюсам
-      if (Math.Abs(y) > 1e5)
-        return;
+      bool isBetter = (mode == OptimizationMode.Minimum && y < bestY) ||
+                      (mode == OptimizationMode.Maximum && y > bestY);
 
-      bool isBetter =
-          (mode == OptimizationMode.Minimum && y < bestY) ||
-          (mode == OptimizationMode.Maximum && y > bestY);
-
-      if (isBetter)
+      if (isBetter || double.IsNaN(bestX))
       {
         bestX = x;
         bestY = y;
+        bestSteps = new List<NewtonStep> { new NewtonStep { X = x, Y = y } }; // На границе всего 1 шаг
       }
     }
 
-    // Первая производная (центральная разность)
+    // 1-я производная (численно)
     private static double Derivative(Func<double, double> f, double x)
     {
       double h = 1e-6 * Math.Max(1.0, Math.Abs(x));
-
-      if (!TryEvaluate(f, x + h, out double fPlus) ||
-          !TryEvaluate(f, x - h, out double fMinus))
-        return double.NaN;
-
+      double fPlus, fMinus;
+      if (!TryEvaluate(f, x + h, out fPlus) || !TryEvaluate(f, x - h, out fMinus)) return double.NaN;
       return (fPlus - fMinus) / (2.0 * h);
     }
 
-    // Вторая производная (центральная разность)
+    // 2-я производная (численно)
     private static double SecondDerivative(Func<double, double> f, double x)
     {
       double h = 1e-4 * Math.Max(1.0, Math.Abs(x));
-
-      if (!TryEvaluate(f, x, out double f0) ||
-          !TryEvaluate(f, x + h, out double fPlus) ||
-          !TryEvaluate(f, x - h, out double fMinus))
-        return double.NaN;
-
+      double f0, fPlus, fMinus;
+      if (!TryEvaluate(f, x, out f0) || !TryEvaluate(f, x + h, out fPlus) || !TryEvaluate(f, x - h, out fMinus)) return double.NaN;
       return (fPlus - 2.0 * f0 + fMinus) / (h * h);
     }
 
-    private static bool TryEvaluate(Func<double, double> f, double x, out double value)
+    private static bool TryEvaluate(Func<double, double> f, double x, out double y)
     {
       try
       {
-        value = f(x);
-        return IsFinite(value);
+        y = f(x);
+        return !double.IsNaN(y) && !double.IsInfinity(y);
       }
       catch
       {
-        value = double.NaN;
+        y = double.NaN;
         return false;
       }
-    }
-
-    private static bool IsFinite(double value)
-    {
-      return !double.IsNaN(value) && !double.IsInfinity(value);
     }
   }
 }
